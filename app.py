@@ -1,0 +1,214 @@
+import asyncio
+import json
+import secrets
+
+from websockets.asyncio.server import serve
+from connect4 import PLAYER1, PLAYER2, Connect4
+from websockets.asyncio.server import broadcast
+
+JOIN = {}   
+WATCH = {}
+
+async def play(websocket, game, player, connected):
+
+    async for message in websocket:
+
+        data = json.loads(message)
+
+        try:
+
+           row = game.play(player=player, column=data.get("column"))
+
+        except ValueError as e:
+
+            event = {
+                "type": "error",
+                "message": str(e),
+            }
+            await websocket.send(json.dumps(event))
+            continue
+      
+        print(f"Received message: {data}")
+
+        event = {
+    
+            "type": "play",
+            "player": player,
+            "column": data.get("column"),
+            "row": row,
+        }
+
+        await websocket.send(json.dumps(event))  
+        broadcast(connected, json.dumps(event))
+
+        if game.winner is not None:
+
+            event = {
+                "type": "win",
+                "player": player,
+            }
+            
+            await websocket.send(json.dumps(event))
+            broadcast(connected, json.dumps(event))
+
+
+
+async def error(websocket, message):
+    event = {
+        "type": "error",
+        "message": message,
+    }
+    await websocket.send(json.dumps(event))
+
+async def replay(websocket, game):
+
+    for player, column, row in game.moves:
+        event = {
+            "type": "play",
+            "player": player,
+            "column": column,
+            "row": row,
+        }
+        await websocket.send(json.dumps(event))
+
+
+
+async def join(websocket, join_key):
+
+    try:
+        game, connected = JOIN[join_key]
+    except KeyError:
+        await error(websocket, "Invalid join key")
+        return
+
+    connected.add(websocket)
+
+    try:
+       
+        await play(websocket, game, PLAYER2, connected)
+
+    finally:
+        connected.remove(websocket)                 
+
+
+
+async def start(websocket):
+    # Initialize a Connect Four game, the set of WebSocket connections
+    # receiving moves from this game, and secret access token.
+    game = Connect4()
+    connected = {websocket}
+
+    join_key = secrets.token_urlsafe(12)
+    watch_key = secrets.token_urlsafe(16)
+
+    JOIN[join_key] = game, connected
+    WATCH[watch_key] = game, connected
+
+    try:
+        # Send the secret access token to the browser of the first player,
+        # where it'll be used for building a "join" link.
+        event = {
+            "type": "init",
+            "join": join_key,
+            "watch": watch_key,
+        }
+        await websocket.send(json.dumps(event))
+
+        await play(websocket, game, PLAYER1, connected)
+
+    finally:
+        del JOIN[join_key]
+        del WATCH[watch_key]
+
+async def watch(websocket, watch_key):
+
+    try:
+       
+       game, connected = WATCH[watch_key]   
+
+    except KeyError:
+
+        await error(websocket, "Invalid watch key")
+        return   
+    
+    connected.add(websocket)
+    try:
+
+        await replay(websocket, game)
+        await websocket.wait_closed()
+
+    finally:
+
+        connected.remove(websocket)
+
+async def handler(websocket):
+
+    #global PLAYING
+    #game = Connect4()
+
+    #async for message in websocket:
+
+    #    data = json.loads(message)
+    #    player0 = PLAYER1 if PLAYING == 1 else PLAYER2
+
+    #    try:
+
+    #       row = game.play(player=player0, column=data.get("column"))
+
+    #    except ValueError as e:
+
+    #        event = {
+    #            "type": "error",
+    #            "message": str(e),
+    #        }
+    #        await websocket.send(json.dumps(event))
+    #        continue
+    #  
+    #    print(f"Received message: {data}")
+
+    #    event = {
+    #
+    #        "type": "play",
+    #        "player": player0,
+    #        "column": data.get("column"),
+    #        "row": row,
+    #    }
+
+    #    await websocket.send(json.dumps(event))  
+
+    #    if game.winner is not None:
+
+    #        event = {
+    #            "type": "win",
+    #            "player": player0,
+    #        }
+    #        
+    #        await websocket.send(json.dumps(event))
+
+    #    if PLAYING == 1:
+    #        PLAYING = 2
+    #    else:
+    #        PLAYING = 1    
+
+
+    message = await websocket.recv()
+    event = json.loads(message)
+    assert event["type"] == "init"
+
+    if "join" in event:
+        await join(websocket, event["join"])
+    elif "watch" in event:
+        await watch(websocket, event["watch"])
+    else:    
+        await start(websocket)    
+
+async def main():
+
+    async with serve(handler, "", 8001) as server:
+        await server.serve_forever()
+
+      
+
+if __name__ == "__main__":
+
+    asyncio.run(main())
