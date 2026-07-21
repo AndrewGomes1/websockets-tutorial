@@ -21,7 +21,7 @@ function getWebSocketServer() {
 
   else if (window.location.host === "andrewgomes1.github.io/websockets-tutorial/"){
 
-    return "wss://websockets-tutorial-a6jl.onrender.com/";
+    return "wss://websockets-tutorial-cmf2.onrender.com";
     
   }
 
