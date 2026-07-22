@@ -19,9 +19,9 @@ function getWebSocketServer() {
     return "ws://localhost:8001/";
   }
 
-  else if (window.location.host === "andrewgomes1.github.io"){
+  else if (window.location.host === "andrewgomes1.github.io") {
 
-    return "wss://websockets-tutorial-cmf2.onrender.com";
+    return "wss://websockets-tutorial-cmf2.onrender.com/";
     
   }
 
